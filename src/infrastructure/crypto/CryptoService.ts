@@ -34,7 +34,7 @@ export class CryptoService {
     const encrypted = await Aes.encrypt(text, keyHex, iv, 'aes-256-cbc');
 
     // Generar HMAC para asegurar que el archivo no fue alterado
-    const hmac = await (Aes as any).hmac(encrypted, keyHex, 'sha256');
+    const hmac = await Aes.hmac256(encrypted, keyHex);
 
     // Formato: IV:HMAC:TextoCifrado
     return `${iv}:${hmac}:${encrypted}`;
@@ -48,11 +48,7 @@ export class CryptoService {
     const [iv, storedHmac, encryptedText] = parts;
 
     // 1. Verificar integridad (Autenticación)
-    const calculatedHmac = await (Aes as any).hmac(
-      encryptedText,
-      keyHex,
-      'sha256',
-    );
+    const calculatedHmac = await Aes.hmac256(encryptedText, keyHex);
     if (calculatedHmac !== storedHmac) {
       throw new Error('Integridad comprometida o clave incorrecta');
     }

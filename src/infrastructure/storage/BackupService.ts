@@ -1,8 +1,9 @@
 import RNFS from 'react-native-fs';
-import { pick, keepLocalCopy, isCancel } from '@react-native-documents/picker';
+import { pick, keepLocalCopy } from '@react-native-documents/picker';
 import Share from 'react-native-share';
 import { CryptoService } from '../crypto/CryptoService';
 import { VaultService } from './VaultService';
+import { SecureStorageService } from './SecureStorageService';
 
 export class BackupService {
   private static BACKUP_EXTENSION = '.pvb';
@@ -11,14 +12,18 @@ export class BackupService {
   static async exportVault(): Promise<void> {
     try {
       const vaultPath = VaultService.getVaultPath();
-
       const exists = await RNFS.exists(vaultPath);
-      if (!exists) {
-        throw new Error('No hay datos para exportar');
-      }
+      if (!exists) throw new Error('No hay datos para exportar');
+
+      const encryptedData = await RNFS.readFile(vaultPath, 'utf8');
+      const salt = await SecureStorageService.getSalt();
+      if (!salt) throw new Error('No se encontró el salt local');
+
+      // Formato autocontenido: salt:iv:hmac:textocifrado
+      const backupContent = `${salt}:${encryptedData}`;
 
       const tempFilePath = `${RNFS.CachesDirectoryPath}/vault_backup${this.BACKUP_EXTENSION}`;
-      await RNFS.copyFile(vaultPath, tempFilePath);
+      await RNFS.writeFile(tempFilePath, backupContent, 'utf8');
 
       await Share.open({
         url: `file://${tempFilePath}`,
@@ -31,61 +36,67 @@ export class BackupService {
       if (
         error?.message === 'User did not share' ||
         error?.message === 'Share canceled'
-      ) {
+      )
         return;
-      }
       throw new Error('Error al exportar el backup');
     }
   }
 
-  // 2. IMPORTAR (Descargar de Drive y restaurar)
-  static async importVault(masterKey: string): Promise<void> {
+  // 2. IMPORTAR (Restaurar desde Drive)
+  static async importVault(
+    masterKey: string,
+    backupPin: string,
+  ): Promise<void> {
     try {
-      // Abrir selector nativo de archivos
       const result = await pick();
-
-      if (!result || result.length === 0) return; // Usuario canceló
+      if (!result || result.length === 0) return;
 
       const file = result[0];
+      let fileContent: string;
 
-      // Crear copia local del archivo seleccionado
-      const localCopies = await keepLocalCopy({
-        files: [
-          {
-            uri: file.uri,
-            fileName: file.name || 'backup.pvb',
-          },
-        ],
-        destination: 'cachesDirectory',
-      });
+      try {
+        // Estrategia 1: leer la URI de contenido directamente
+        fileContent = await RNFS.readFile(file.uri, 'utf8');
+      } catch {
+        // Estrategia 2: copia local temporal
+        const localCopies = await keepLocalCopy({
+          files: [{ uri: file.uri, fileName: file.name || 'backup.pvb' }],
+          destination: 'cachesDirectory',
+        });
 
-      if (!localCopies || localCopies.length === 0) {
-        throw new Error('No se pudo copiar el archivo');
+        const localFile = (localCopies && localCopies[0]) as any;
+        const sourceUri =
+          localFile?.uri || localFile?.copyUri || localFile?.path;
+        if (!sourceUri) throw new Error('No se pudo acceder al archivo local');
+        fileContent = await RNFS.readFile(sourceUri, 'utf8');
       }
 
-      const localFile = localCopies?.[0] as any;
-      const sourceUri = localFile?.uri;
+      // Separar el salt incrustado del resto
+      const firstColon = fileContent.indexOf(':');
+      if (firstColon === -1) throw new Error('Formato de backup inválido');
 
-      if (!sourceUri) throw new Error('No se pudo acceder al archivo local');
+      const embeddedSalt = fileContent.substring(0, firstColon);
+      const encryptedData = fileContent.substring(firstColon + 1);
 
-      // Leer el archivo .pvb seleccionado
-      const fileContent = await RNFS.readFile(sourceUri, 'utf8');
+      // Derivar la clave con el PIN original del backup y su salt
+      const backupKey = await CryptoService.deriveKey(backupPin, embeddedSalt);
 
-      // Validar que el archivo sea legítimo intentando descifrarlo
-      const decryptedJson = await CryptoService.decrypt(fileContent, masterKey);
-      JSON.parse(decryptedJson);
-
-      // Sobrescribir la bóveda local con el backup importado
-      const vaultPath = VaultService.getVaultPath();
-      await RNFS.writeFile(vaultPath, fileContent, 'utf8');
-    } catch (error) {
-      // Ignorar si el usuario cancela la selección
-      if (isCancel(error)) {
-        return;
-      }
-      throw new Error(
-        'Archivo de backup inválido, corrupto o clave incorrecta',
+      // Descifrar y validar integridad
+      const decryptedJson = await CryptoService.decrypt(
+        encryptedData,
+        backupKey,
       );
+      const credentials = JSON.parse(decryptedJson);
+
+      // Re-cifrar con la Master Key actual y guardar
+      await VaultService.saveVault(credentials, masterKey);
+    } catch (error: any) {
+      if (
+        error?.code === 'E_DOCUMENT_PICKER_CANCELED' ||
+        error?.message?.includes('cancel')
+      )
+        return;
+      throw new Error(`Detalle técnico: ${error?.message || String(error)}`);
     }
   }
 }

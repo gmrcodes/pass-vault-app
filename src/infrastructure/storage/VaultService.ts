@@ -25,7 +25,10 @@ export class VaultService {
       const encryptedData = await RNFS.readFile(this.VAULT_FILE, 'utf8');
 
       // Lo desciframos en memoria usando la Master Key
-      const decryptedJson = CryptoService.decrypt(encryptedData, masterKey);
+      const decryptedJson = await CryptoService.decrypt(
+        encryptedData,
+        masterKey,
+      );
 
       return JSON.parse(decryptedJson) as Credential[];
     } catch (error) {
@@ -45,7 +48,7 @@ export class VaultService {
       const jsonString = JSON.stringify(credentials);
 
       // Ciframos todo el JSON de una sola vez
-      const encryptedData = CryptoService.encrypt(jsonString, masterKey);
+      const encryptedData = await CryptoService.encrypt(jsonString, masterKey);
 
       // Sobrescribimos el archivo en el disco
       await RNFS.writeFile(this.VAULT_FILE, encryptedData, 'utf8');

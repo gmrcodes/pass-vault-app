@@ -9,6 +9,7 @@ import React, { useState } from 'react';
 import { StatusBar, View, Text, useColorScheme } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { LockScreen } from './src/presentation/screens/LockScreen';
+import { MainScreen } from './src/presentation/screens/MainScreen';
 
 const App = () => {
   const [masterKey, setMasterKey] = useState<string | null>(null);
@@ -29,13 +30,7 @@ const App = () => {
         {!masterKey ? (
           <LockScreen onUnlock={handleUnlock} />
         ) : (
-          <View
-            style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
-          >
-            <Text style={{ color: isDark ? '#FFF' : '#000', fontSize: 20 }}>
-              Bóveda Desbloqueada
-            </Text>
-          </View>
+          <MainScreen masterKey={masterKey} onLock={() => setMasterKey(null)} />
         )}
       </SafeAreaView>
     </SafeAreaProvider>
