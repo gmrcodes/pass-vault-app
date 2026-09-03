@@ -1,45 +1,45 @@
 /**
- * Sample React Native App
- * https://github.com/facebook/react-native
+ * Pass-Vault-App
+ * With React Native
  *
  * @format
  */
 
-import { NewAppScreen } from '@react-native/new-app-screen';
-import { StatusBar, StyleSheet, useColorScheme, View } from 'react-native';
-import {
-  SafeAreaProvider,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
+import React, { useState } from 'react';
+import { StatusBar, View, Text, useColorScheme } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { LockScreen } from './src/presentation/screens/LockScreen';
 
-function App() {
-  const isDarkMode = useColorScheme() === 'dark';
+const App = () => {
+  const [masterKey, setMasterKey] = useState<string | null>(null);
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+
+  const handleUnlock = (key: string) => {
+    setMasterKey(key);
+    // Aquí cargaremos la MainScreen en el siguiente paso
+  };
 
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <AppContent />
+      <SafeAreaView
+        style={{ flex: 1, backgroundColor: isDark ? '#121212' : '#F2F2F7' }}
+      >
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+        {!masterKey ? (
+          <LockScreen onUnlock={handleUnlock} />
+        ) : (
+          <View
+            style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+          >
+            <Text style={{ color: isDark ? '#FFF' : '#000', fontSize: 20 }}>
+              Bóveda Desbloqueada
+            </Text>
+          </View>
+        )}
+      </SafeAreaView>
     </SafeAreaProvider>
   );
-}
-
-function AppContent() {
-  const safeAreaInsets = useSafeAreaInsets();
-
-  return (
-    <View style={styles.container}>
-      <NewAppScreen
-        templateFileName="App.tsx"
-        safeAreaInsets={safeAreaInsets}
-      />
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-});
+};
 
 export default App;

@@ -1,5 +1,5 @@
 import RNFS from 'react-native-fs';
-import DocumentPicker from 'react-native-document-picker';
+import { pick, keepLocalCopy, isCancel } from '@react-native-documents/picker';
 import Share from 'react-native-share';
 import { CryptoService } from '../crypto/CryptoService';
 import { VaultService } from './VaultService';
@@ -12,27 +12,22 @@ export class BackupService {
     try {
       const vaultPath = VaultService.getVaultPath();
 
-      // Verificar si existe la bóveda
       const exists = await RNFS.exists(vaultPath);
       if (!exists) {
         throw new Error('No hay datos para exportar');
       }
 
-      // Crear un archivo temporal con extensión .pvb
       const tempFilePath = `${RNFS.CachesDirectoryPath}/vault_backup${this.BACKUP_EXTENSION}`;
       await RNFS.copyFile(vaultPath, tempFilePath);
 
-      // Abrir el menú nativo de compartir del móvil
       await Share.open({
         url: `file://${tempFilePath}`,
         type: 'application/octet-stream',
         title: 'Guardar Backup en Drive',
       });
 
-      // Limpiar el archivo temporal
       await RNFS.unlink(tempFilePath);
     } catch (error: any) {
-      // Ignorar si el usuario cierra el menú de compartir sin seleccionar nada
       if (
         error?.message === 'User did not share' ||
         error?.message === 'Share canceled'
@@ -47,25 +42,45 @@ export class BackupService {
   static async importVault(masterKey: string): Promise<void> {
     try {
       // Abrir selector nativo de archivos
-      const res = await DocumentPicker.pick({
-        type: ['application/octet-stream', '*/*'],
+      const result = await pick();
+
+      if (!result || result.length === 0) return; // Usuario canceló
+
+      const file = result[0];
+
+      // Crear copia local del archivo seleccionado
+      const localCopies = await keepLocalCopy({
+        files: [
+          {
+            uri: file.uri,
+            fileName: file.name || 'backup.pvb',
+          },
+        ],
+        destination: 'cachesDirectory',
       });
 
-      const sourceUri = res[0].uri;
+      if (!localCopies || localCopies.length === 0) {
+        throw new Error('No se pudo copiar el archivo');
+      }
+
+      const localFile = localCopies?.[0] as any;
+      const sourceUri = localFile?.uri;
+
+      if (!sourceUri) throw new Error('No se pudo acceder al archivo local');
 
       // Leer el archivo .pvb seleccionado
       const fileContent = await RNFS.readFile(sourceUri, 'utf8');
 
       // Validar que el archivo sea legítimo intentando descifrarlo
-      const decryptedJson = CryptoService.decrypt(fileContent, masterKey);
-      JSON.parse(decryptedJson); // Si no es JSON válido, fallará aquí
+      const decryptedJson = await CryptoService.decrypt(fileContent, masterKey);
+      JSON.parse(decryptedJson);
 
       // Sobrescribir la bóveda local con el backup importado
       const vaultPath = VaultService.getVaultPath();
       await RNFS.writeFile(vaultPath, fileContent, 'utf8');
     } catch (error) {
       // Ignorar si el usuario cancela la selección
-      if (DocumentPicker.isCancel(error)) {
+      if (isCancel(error)) {
         return;
       }
       throw new Error(

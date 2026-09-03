@@ -1,5 +1,6 @@
 import * as Keychain from 'react-native-keychain';
 import argon2 from 'react-native-argon2';
+import Aes from 'react-native-aes-crypto';
 
 export class SecureStorageService {
   private static SALT_KEY = 'vault_salt';
@@ -7,7 +8,7 @@ export class SecureStorageService {
 
   // 1. Guardar el Salt y el Hash del PIN (Solo se ejecuta en el primer setup)
   static async initializeVault(pin: string): Promise<void> {
-    const salt = this.generateRandomSalt();
+    const salt = await this.generateRandomSalt();
 
     // Generamos un hash del PIN para verificarlo después sin guardar el PIN
     const pinHash = await argon2(pin, salt, {
@@ -68,9 +69,8 @@ export class SecureStorageService {
   }
 
   // Utilidad para generar salt aleatorio
-  private static generateRandomSalt(): string {
+  private static async generateRandomSalt(): Promise<string> {
     // Usamos un salt fijo de 16 bytes en hex para el hash del PIN
-    // En producción real se usaría crypto.getRandomValues, pero para simplificar usamos un string largo
-    return 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6';
+    return await Aes.randomKey(16);
   }
 }
